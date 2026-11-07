@@ -111,6 +111,19 @@
   .hirow input { padding: 7px 10px; font-size: 1rem; background: #fff8ec; }
   .hirow input.busy { color: var(--muted); }
   .sub { display: block; color: var(--muted); font-weight: 400; font-size: .9rem; }
+  button.wa { background: #1fa855; border-color: #1fa855; color: #fff; display: inline-flex; align-items: center; gap: 6px; }
+  button.wa:hover { background: #178a45; }
+  button.small.wa { padding: 4px 8px; }
+  .msg-head { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; }
+  .msg-head h2 { margin: 0; }
+  textarea {
+    width: 100%; margin-top: 8px; padding: 10px 12px; font: inherit; font-size: .95rem; line-height: 1.45;
+    border: 1px solid var(--line); border-radius: 8px; background: #fffdf9; color: var(--text); resize: vertical;
+  }
+  input[type=tel] {
+    width: 100%; padding: 10px 12px; font: inherit; font-size: 1.05rem;
+    border: 1px solid var(--line); border-radius: 8px; background: #fffdf9; color: var(--text);
+  }
   .tag { font-size: .75rem; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; color: var(--muted); margin-left: 4px; font-weight: 400; }
 </style>
 </head>
@@ -146,8 +159,12 @@
         <div class="hirow"><span>हिंदी</span><input type="text" class="hi" id="addr2_hi" maxlength="120" placeholder="auto…"></div>
         <p class="hinote">English me likho — हिंदी apne aap ban jayegi. Koi shabd galat ho to हिंदी wale box me seedha sudhaar lo.</p>
 
+        <label for="phone">4. Guest ka WhatsApp number <small>(optional — card par nahi chhapta)</small></label>
+        <input type="tel" id="phone" maxlength="20" placeholder="e.g. 98765 43210" inputmode="tel">
+
         <div class="actions">
           <button type="submit" class="primary" id="dlBtn">⬇ Download PDF</button>
+          <button type="button" class="wa" id="waBtn"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.3-.4.8-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.7.3-.2.3-.9.9-.9 2.2s.9 2.5 1 2.7c.1.2 1.8 2.8 4.4 3.9 1.6.7 2.3.8 3.1.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3z"/></svg> WhatsApp par bhejo</button>
           <button type="button" id="clearBtn">Clear</button>
         </div>
         <div class="hint" id="hint"></div>
@@ -157,6 +174,13 @@
     <section class="panel">
       <h2>Preview</h2>
       <canvas id="preview"></canvas>
+
+      <div class="msg-head">
+        <h2>WhatsApp message</h2>
+        <button type="button" class="small" id="msgReset">Default message</button>
+      </div>
+      <textarea id="msg" rows="14"></textarea>
+      <p class="hint" style="margin-top:6px">Ye message card ke saath jayega. Isme badlav kar sakte ho — save rahega.</p>
     </section>
   </div>
 
@@ -330,7 +354,7 @@ KEYS.forEach((k) => {
 
 // Full record of what's in the form.
 function record() {
-  const r = { lang };
+  const r = { lang, phone: $("phone").value.trim() };
   KEYS.forEach((k) => { r[k] = enEl[k].value.trim(); r[k + "_hi"] = hiEl[k].value.trim(); });
   return r;
 }
@@ -343,10 +367,12 @@ function printed(r) {
 function values() { return printed(record()); }
 function fillForm(r) {
   KEYS.forEach((k) => { enEl[k].value = r[k] || ""; hiEl[k].value = r[k + "_hi"] || ""; });
+  $("phone").value = r.phone || "";
   setLang(r.lang === "hi" ? "hi" : "en");
 }
 function clearForm() {
   KEYS.forEach((k) => { enEl[k].value = ""; hiEl[k].value = ""; });
+  $("phone").value = "";
   renderPreview();
 }
 
@@ -418,21 +444,121 @@ function safeFileName(name) {
 }
 
 // r is a full record ({lang, name, name_hi, ...}); old entries without lang print in English.
-async function downloadFor(r) {
+async function makePdfFile(r) {
   if (typeof PDFLib === "undefined") throw new Error("PDF library load nahi hui — internet check karo.");
   await fontsReady();
   const p = printed(r);
   const bytes = await buildPdf(p);
-  const blob = new Blob([bytes], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
+  return new File([bytes], safeFileName(r.name || p.name), { type: "application/pdf" });
+}
+
+function saveFile(file) {
+  const url = URL.createObjectURL(file);
   const a = document.createElement("a");
   a.href = url;
-  a.download = safeFileName(r.name || p.name);
+  a.download = file.name;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
+
+async function downloadFor(r) {
+  saveFile(await makePdfFile(r));
+}
+
+// ---------- WhatsApp ----------
+const SENDER_WA = "+91-7549831252";
+const DEFAULT_MSG = `Dear Friend,
+
+With immense joy and blessings of the Almighty, we warmly invite you and your family to the wedding ceremony of
+
+💍 *Surabhi* & *Vindhya* 💍
+
+📅 *Friday, 20 November 2026*
+🍽️ Preetibhoj (Reception): 7:00 PM onwards
+📍 Shagun Vatika, Mahisauri, Jamui (Bihar)
+
+Wedding functions:
+• Tilak – Tue, 17 Nov
+• Haldi – Wed, 18 Nov
+• Mehndi & Sangeet – Thu, 19 Nov
+• Shubh Vivah – Fri, 20 Nov
+
+Your presence and blessings will make this day truly special for us. Please find the invitation card attached. 🙏
+
+With warm regards,
+Shubham & Family
+📞 WhatsApp: ${SENDER_WA}`;
+const MSG_KEY = "wedding-wa-msg-v1";
+const msgEl = $("msg");
+try { msgEl.value = localStorage.getItem(MSG_KEY) || DEFAULT_MSG; } catch (e) { msgEl.value = DEFAULT_MSG; }
+msgEl.addEventListener("input", () => { try { localStorage.setItem(MSG_KEY, msgEl.value); } catch (e) {} });
+$("msgReset").addEventListener("click", () => {
+  if (msgEl.value !== DEFAULT_MSG && !confirm("Apna likha message hata kar default message lagana hai?")) return;
+  msgEl.value = DEFAULT_MSG;
+  try { localStorage.removeItem(MSG_KEY); } catch (e) {}
+});
+
+// Indian 10-digit numbers get +91; anything else is used as typed (digits only).
+function waNumber(phone) {
+  let d = String(phone || "").replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
+  if (d.length === 10) d = "91" + d;
+  return d.length >= 11 ? d : "";
+}
+
+const isPhone = window.matchMedia("(pointer: coarse)").matches;
+
+// Returns "shared" when the PDF went through the phone's share sheet,
+// or "chat" when we downloaded it and opened the WhatsApp chat with the message.
+async function sendWhatsApp(r) {
+  const msg = msgEl.value.trim() || DEFAULT_MSG;
+  const file = await makePdfFile(r);
+  if (isPhone && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], text: msg });
+      return "shared";
+    } catch (err) {
+      if (err.name === "AbortError") return "cancelled";
+      // Share sheet refused (e.g. took too long) — fall through to the chat link.
+    }
+  }
+  saveFile(file);
+  const num = waNumber(r.phone);
+  const url = `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
+  window.open(url, "_blank", "noopener");
+  return "chat";
+}
+
+async function waFlow(r, btn) {
+  btn.disabled = true;
+  hint.className = "hint";
+  hint.textContent = "Card ban raha hai…";
+  try {
+    const res = await sendWhatsApp(r);
+    if (res === "cancelled") { hint.textContent = "Bhejna cancel kiya."; }
+    else {
+      upsert(r, { wa: true });
+      hint.textContent = res === "shared"
+        ? `✓ "${printed(r).name}" ka card WhatsApp par share kiya.`
+        : `✓ Card download ho gaya aur WhatsApp khul gaya — chat me 📎 se "${safeFileName(r.name || printed(r).name)}" attach karke bhejo.`;
+    }
+  } catch (err) {
+    hint.className = "hint err";
+    hint.textContent = "Error: " + err.message;
+  }
+  btn.disabled = false;
+  return hint.className !== "hint err";
+}
+
+$("waBtn").addEventListener("click", async () => {
+  if (!nameEl.value.trim() && !(lang === "hi" && hiEl.name.value.trim())) {
+    hint.textContent = "Naam likhna zaroori hai."; hint.className = "hint err"; nameEl.focus(); return;
+  }
+  if (lang === "hi") await translitAllNow();
+  if (await waFlow(record(), $("waBtn"))) clearForm();
+});
 
 // ---------- Saved list ----------
 function loadList() {
@@ -443,15 +569,17 @@ function saveList(list) {
 }
 let list = loadList();
 
-function upsert(v) {
+function upsert(v, extra = {}) {
   const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ");
   const fields = ["lang", "name", "addr1", "addr2", "name_hi", "addr1_hi", "addr2_hi"];
-  const existing = list.find((r) => fields.every((f) => norm(r[f] || (f === "lang" ? "en" : "")) === norm(v[f])));
+  const existing = list.find((r) => r === v || fields.every((f) => norm(r[f] || (f === "lang" ? "en" : "")) === norm(v[f])));
   if (existing) {
     existing.at = Date.now();
     existing.downloads = (existing.downloads || 1) + 1;
+    if (v.phone) existing.phone = v.phone;
+    Object.assign(existing, extra);
   } else {
-    list.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...v, at: Date.now(), downloads: 1 });
+    list.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...v, ...extra, at: Date.now(), downloads: 1 });
   }
   saveList(list);
   renderList();
@@ -478,10 +606,11 @@ function renderList() {
     const nameHi = isHi && r.name_hi && r.name_hi !== r.name ? `<span class="sub">${esc(r.name_hi)}</span>` : "";
     return `<tr>
       <td>${list.length - list.indexOf(r)}</td>
-      <td class="name">${esc(r.name || r.name_hi)}<span class="tag">${isHi ? "हिंदी" : "EN"}</span>${nameHi}</td>
+      <td class="name">${esc(r.name || r.name_hi)}<span class="tag">${isHi ? "हिंदी" : "EN"}</span>${r.wa ? '<span class="tag" style="color:#1fa855;border-color:#1fa855">WhatsApp ✓</span>' : ""}${nameHi}${r.phone ? `<span class="sub">📞 ${esc(r.phone)}</span>` : ""}</td>
       <td>${addr || "<span style='color:var(--muted)'>—</span>"}${addrHi && addrHi !== addr ? `<span class="sub">${addrHi}</span>` : ""}</td>
       <td class="when">${when}</td>
       <td class="btns">
+        <button class="small wa" data-act="wa" data-id="${r.id}" title="WhatsApp par bhejo">WA</button>
         <button class="small" data-act="dl" data-id="${r.id}" title="Dobara download">⬇</button>
         <button class="small" data-act="edit" data-id="${r.id}" title="Form me bharo">Edit</button>
         <button class="small danger" data-act="del" data-id="${r.id}" title="List se hatao">✕</button>
@@ -505,6 +634,8 @@ $("rows").addEventListener("click", async (e) => {
     fillForm(r);
     window.scrollTo({ top: 0, behavior: "smooth" });
     nameEl.focus();
+  } else if (btn.dataset.act === "wa") {
+    await waFlow(r, btn);
   } else if (btn.dataset.act === "dl") {
     btn.disabled = true;
     try { await downloadFor(r); } catch (err) { alert(err.message); }
@@ -517,11 +648,12 @@ $("search").addEventListener("input", renderList);
 $("csvBtn").addEventListener("click", () => {
   if (!list.length) return;
   const q = (s) => `"${String(s || "").replace(/"/g, '""')}"`;
-  const lines = [["S.No", "Naam", "Address", "Address 2", "Card Language", "नाम (हिंदी)", "पता (हिंदी)", "पता 2 (हिंदी)", "Date"].map(q).join(",")];
+  const lines = [["S.No", "Naam", "Address", "Address 2", "Card Language", "नाम (हिंदी)", "पता (हिंदी)", "पता 2 (हिंदी)", "WhatsApp No.", "WhatsApp Sent", "Date"].map(q).join(",")];
   list.slice().reverse().forEach((r, i) => {
     const isHi = r.lang === "hi";
     lines.push([i + 1, r.name, r.addr1, r.addr2, isHi ? "Hindi" : "English",
       isHi ? r.name_hi : "", isHi ? r.addr1_hi : "", isHi ? r.addr2_hi : "",
+      r.phone || "", r.wa ? "Yes" : "",
       new Date(r.at).toLocaleString("en-IN")].map(q).join(","));
   });
   const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
