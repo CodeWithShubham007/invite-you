@@ -561,8 +561,6 @@ function waNumber(phone) {
   return d.length >= 11 ? d : "";
 }
 
-const isPhone = window.matchMedia("(pointer: coarse)").matches;
-const canShareFiles = isPhone && !!navigator.canShare;
 
 // ---------- Personal card link ----------
 // WhatsApp links (wa.me) can only carry text, never a file. So the message carries a link to this
@@ -594,7 +592,6 @@ function messageFor(r) {
 // The WhatsApp tab must be opened right on the click — browsers block window.open
 // once we have waited for the PDF to build. We fill in its address afterwards.
 function openWaTab() {
-  if (canShareFiles) return null; // phone: the share sheet sends the PDF itself
   const tab = window.open("", "_blank");
   if (tab) {
     try {
@@ -606,21 +603,10 @@ function openWaTab() {
   return tab;
 }
 
-// Returns "shared" when the PDF went through the phone's share sheet,
-// or "chat" when WhatsApp opened in a new tab with the message and card link.
+// Opens WhatsApp in a new tab with the message. No PDF is made or downloaded here:
+// the message carries the guest's card link, where they can view or download it.
 async function sendWhatsApp(r, tab) {
   const msg = messageFor(r);
-  const file = await makePdfFile(r);
-  if (canShareFiles && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], text: msg });
-      return "shared";
-    } catch (err) {
-      if (err.name === "AbortError") return "cancelled";
-      // Share sheet refused (e.g. took too long) — fall through to the chat link.
-    }
-  }
-  saveFile(file); // a copy for you, in case you also want to attach the PDF itself
   const url = `https://wa.me/${waNumber(r.phone)}?text=${encodeURIComponent(msg)}`;
   if (tab && !tab.closed) tab.location.href = url;
   else if (!window.open(url, "_blank")) location.href = url; // popup blocked: use this tab
@@ -630,16 +616,11 @@ async function sendWhatsApp(r, tab) {
 async function waFlow(r, btn, tab = openWaTab()) {
   btn.disabled = true;
   hint.className = "hint";
-  hint.textContent = "Card ban raha hai…";
+  hint.textContent = "WhatsApp khul raha hai…";
   try {
-    const res = await sendWhatsApp(r, tab);
-    if (res === "cancelled") { hint.textContent = "Bhejna cancel kiya."; }
-    else {
-      upsert(r, { wa: true });
-      hint.textContent = res === "shared"
-        ? `✓ "${printed(r).name}" ka card WhatsApp par share kiya.`
-        : `✓ WhatsApp naye tab me khul gaya — message me "${printed(r).name}" ke card ka link hai, bas Send dabao.`;
-    }
+    await sendWhatsApp(r, tab);
+    upsert(r, { wa: true });
+    hint.textContent = `✓ WhatsApp naye tab me khul gaya — message me "${printed(r).name}" ke card ka link hai, bas Send dabao.`;
   } catch (err) {
     if (tab && !tab.closed) tab.close();
     hint.className = "hint err";
