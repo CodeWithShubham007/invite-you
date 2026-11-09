@@ -606,8 +606,14 @@ function openWaTab() {
 // Opens WhatsApp in a new tab with the message. No PDF is made or downloaded here:
 // the message carries the guest's card link, where they can view or download it.
 async function sendWhatsApp(r, tab) {
-  const msg = messageFor(r);
-  const url = `https://wa.me/${waNumber(r.phone)}?text=${encodeURIComponent(msg)}`;
+  // NFC + no stray lone surrogates, so every emoji encodes as clean UTF-8.
+  const msg = messageFor(r).normalize("NFC").replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+  // Not wa.me: its redirect re-encodes the text and turns emoji (💍📅📍📩📞) into "�".
+  // Computers go straight to WhatsApp Web; phones use api.whatsapp.com, which opens the app.
+  const onPhone = window.matchMedia("(pointer: coarse)").matches;
+  const num = waNumber(r.phone);
+  const qs = (num ? `phone=${num}&` : "") + `text=${encodeURIComponent(msg)}`;
+  const url = (onPhone ? "https://api.whatsapp.com/send?" : "https://web.whatsapp.com/send?") + qs;
   if (tab && !tab.closed) tab.location.href = url;
   else if (!window.open(url, "_blank")) location.href = url; // popup blocked: use this tab
   return "chat";
