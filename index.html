@@ -125,9 +125,31 @@
     border: 1px solid var(--line); border-radius: 8px; background: #fffdf9; color: var(--text);
   }
   .tag { font-size: .75rem; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; color: var(--muted); margin-left: 4px; font-weight: 400; }
+  /* Guest view: opened from the card link in the WhatsApp message */
+  #guest { display: none; }
+  body.guest { background: var(--maroon); }
+  body.guest > header, body.guest > main { display: none; }
+  body.guest #guest { display: block; max-width: 520px; margin: 0 auto; padding: 24px 16px 40px; text-align: center; color: var(--gold); }
+  #guest h1 { margin: 0; font-size: 1.7rem; }
+  #guest p { margin: 4px 0 16px; color: #f3dfb8; }
+  #guestCard { width: 100%; height: auto; border-radius: 10px; border: 1px solid rgba(233,194,122,.5); display: block; }
+  #guest .actions { justify-content: center; }
+  #guest button.primary { background: var(--gold); color: var(--maroon); border-color: var(--gold); font-size: 1.05rem; padding: 12px 22px; }
+  #guest button.ghost { background: transparent; color: var(--gold); border-color: var(--gold); }
+  #guest .hint { color: #f3dfb8; }
 </style>
 </head>
 <body>
+<section id="guest">
+  <h1>सुरभि संग विंध्या</h1>
+  <p id="guestTo">आपका निमंत्रण कार्ड</p>
+  <canvas id="guestCard"></canvas>
+  <div class="actions">
+    <button type="button" class="primary" id="guestDl">⬇ कार्ड डाउनलोड करें (PDF)</button>
+    <button type="button" class="ghost" id="guestOpen">पूरा कार्ड देखें</button>
+  </div>
+  <div class="hint" id="guestHint"></div>
+</section>
 <header>
   <h1>सुरभि संग विंध्या — Invitation Card</h1>
   <p>Naam aur pata likho, card PDF download karo</p>
@@ -180,7 +202,7 @@
         <button type="button" class="small" id="msgReset">Default message</button>
       </div>
       <textarea id="msg" rows="14"></textarea>
-      <p class="hint" style="margin-top:6px">Ye message card ke saath jayega. Isme badlav kar sakte ho — save rahega.</p>
+      <p class="hint" style="margin-top:6px">Ye message card ke saath jayega. <b>{card}</b> ki jagah guest ke apne card ka link aayega — link kholte hi unka PDF download ho jata hai. Isme badlav kar sakte ho — save rahega.</p>
     </section>
   </div>
 
@@ -485,7 +507,10 @@ Wedding functions:
 • Mehndi & Sangeet – Thu, 19 Nov
 • Shubh Vivah – Fri, 20 Nov
 
-Your presence and blessings will make this day truly special for us. Please find the invitation card attached. 🙏
+Your presence and blessings will make this day truly special for us. 🙏
+
+📩 Your invitation card (PDF):
+{card}
 
 With warm regards,
 Shubham & Family
@@ -509,13 +534,55 @@ function waNumber(phone) {
 }
 
 const isPhone = window.matchMedia("(pointer: coarse)").matches;
+const canShareFiles = isPhone && !!navigator.canShare;
+
+// ---------- Personal card link ----------
+// WhatsApp links (wa.me) can only carry text, never a file. So the message carries a link to this
+// page with the guest's name/address in the #hash; opening it shows and downloads their own PDF.
+// The hash never reaches the server.
+const SITE_URL = "https://codewithshubham007.github.io/invite-you/";
+function b64urlEncode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function b64urlDecode(s) {
+  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+}
+function cardLink(r) {
+  const p = printed(r);
+  return SITE_URL + "#card=" + b64urlEncode(JSON.stringify([p.name, p.addr1, p.addr2]));
+}
+// Puts the guest's card link where {card} is, or at the end for older saved messages.
+function messageFor(r) {
+  const msg = msgEl.value.trim() || DEFAULT_MSG;
+  const link = cardLink(r);
+  return msg.includes("{card}") ? msg.split("{card}").join(link) : `${msg}\n\n📩 Your invitation card (PDF):\n${link}`;
+}
+
+// The WhatsApp tab must be opened right on the click — browsers block window.open
+// once we have waited for the PDF to build. We fill in its address afterwards.
+function openWaTab() {
+  if (canShareFiles) return null; // phone: the share sheet sends the PDF itself
+  const tab = window.open("", "_blank");
+  if (tab) {
+    try {
+      tab.opener = null;
+      tab.document.title = "WhatsApp…";
+      tab.document.body.innerHTML = '<p style="font:18px system-ui;text-align:center;margin-top:40vh;color:#1fa855">WhatsApp khul raha hai…</p>';
+    } catch (e) {}
+  }
+  return tab;
+}
 
 // Returns "shared" when the PDF went through the phone's share sheet,
-// or "chat" when we downloaded it and opened the WhatsApp chat with the message.
-async function sendWhatsApp(r) {
-  const msg = msgEl.value.trim() || DEFAULT_MSG;
+// or "chat" when WhatsApp opened in a new tab with the message and card link.
+async function sendWhatsApp(r, tab) {
+  const msg = messageFor(r);
   const file = await makePdfFile(r);
-  if (isPhone && navigator.canShare && navigator.canShare({ files: [file] })) {
+  if (canShareFiles && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], text: msg });
       return "shared";
@@ -524,27 +591,28 @@ async function sendWhatsApp(r) {
       // Share sheet refused (e.g. took too long) — fall through to the chat link.
     }
   }
-  saveFile(file);
-  const num = waNumber(r.phone);
-  const url = `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
-  window.open(url, "_blank", "noopener");
+  saveFile(file); // a copy for you, in case you also want to attach the PDF itself
+  const url = `https://wa.me/${waNumber(r.phone)}?text=${encodeURIComponent(msg)}`;
+  if (tab && !tab.closed) tab.location.href = url;
+  else if (!window.open(url, "_blank")) location.href = url; // popup blocked: use this tab
   return "chat";
 }
 
-async function waFlow(r, btn) {
+async function waFlow(r, btn, tab = openWaTab()) {
   btn.disabled = true;
   hint.className = "hint";
   hint.textContent = "Card ban raha hai…";
   try {
-    const res = await sendWhatsApp(r);
+    const res = await sendWhatsApp(r, tab);
     if (res === "cancelled") { hint.textContent = "Bhejna cancel kiya."; }
     else {
       upsert(r, { wa: true });
       hint.textContent = res === "shared"
         ? `✓ "${printed(r).name}" ka card WhatsApp par share kiya.`
-        : `✓ Card download ho gaya aur WhatsApp khul gaya — chat me 📎 se "${safeFileName(r.name || printed(r).name)}" attach karke bhejo.`;
+        : `✓ WhatsApp naye tab me khul gaya — message me "${printed(r).name}" ke card ka link hai, bas Send dabao.`;
     }
   } catch (err) {
+    if (tab && !tab.closed) tab.close();
     hint.className = "hint err";
     hint.textContent = "Error: " + err.message;
   }
@@ -556,8 +624,9 @@ $("waBtn").addEventListener("click", async () => {
   if (!nameEl.value.trim() && !(lang === "hi" && hiEl.name.value.trim())) {
     hint.textContent = "Naam likhna zaroori hai."; hint.className = "hint err"; nameEl.focus(); return;
   }
+  const tab = openWaTab(); // before any await, so the browser allows it
   if (lang === "hi") await translitAllNow();
-  if (await waFlow(record(), $("waBtn"))) clearForm();
+  if (await waFlow(record(), $("waBtn"), tab)) clearForm();
 });
 
 // ---------- Saved list ----------
@@ -699,6 +768,47 @@ $("clearBtn").addEventListener("click", () => {
 setLang(lang);
 renderList();
 fontsReady().then(renderPreview);
+
+// ---------- Guest view (opened from the link in the WhatsApp message) ----------
+function guestFromHash() {
+  const m = location.hash.match(/^#card=([A-Za-z0-9_-]+)$/);
+  if (!m) return null;
+  try {
+    const [name, addr1, addr2] = JSON.parse(b64urlDecode(m[1]));
+    return { lang: "en", name: String(name || ""), addr1: String(addr1 || ""), addr2: String(addr2 || "") };
+  } catch (e) { return null; }
+}
+const guest = guestFromHash();
+if (guest) {
+  document.body.classList.add("guest");
+  document.title = "निमंत्रण — सुरभि संग विंध्या";
+  if (guest.name) $("guestTo").textContent = `${guest.name} — आपका निमंत्रण कार्ड`;
+  const gc = $("guestCard"), GS = 2;
+  gc.width = PAGE_W * GS; gc.height = PAGE_H * GS;
+  const drawGuest = () => {
+    const ctx = gc.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (previewImg.complete && previewImg.naturalWidth) ctx.drawImage(previewImg, 0, 0, gc.width, gc.height);
+    ctx.setTransform(GS, 0, 0, GS, 0, 0);
+    for (const k of Object.keys(FIELDS)) drawField(ctx, guest[k], FIELDS[k]);
+  };
+  previewImg.addEventListener("load", drawGuest);
+  fontsReady().then(drawGuest);
+  const gh = $("guestHint");
+  $("guestDl").addEventListener("click", async (e) => {
+    e.target.disabled = true; gh.textContent = "कार्ड बन रहा है…";
+    try { saveFile(await makePdfFile(guest)); gh.textContent = "✓ कार्ड डाउनलोड हो गया।"; }
+    catch (err) { gh.textContent = "Error: " + err.message; }
+    e.target.disabled = false;
+  });
+  $("guestOpen").addEventListener("click", async () => {
+    const tab = window.open("", "_blank");
+    try {
+      const url = URL.createObjectURL(await makePdfFile(guest));
+      if (tab) tab.location.href = url; else location.href = url;
+    } catch (err) { if (tab) tab.close(); gh.textContent = "Error: " + err.message; }
+  });
+}
 </script>
 </body>
 </html>
