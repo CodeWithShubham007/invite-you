@@ -186,8 +186,8 @@
 
         <label for="group">5. Family ya Friends? <small>(message me contact number isi se aayega)</small></label>
         <select id="group">
-          <option value="family">👨‍👩‍👧 Family — +91-7762002577 & +91-8527300399</option>
-          <option value="friends">🤝 Friends — +91-8527300399</option>
+          <option value="family">👨‍👩‍👧 Family</option>
+          <option value="friends">🤝 Friends</option>
         </select>
 
         <div class="actions">
@@ -208,7 +208,7 @@
         <button type="button" class="small" id="msgReset">Default message</button>
       </div>
       <textarea id="msg" rows="14"></textarea>
-      <p class="hint" style="margin-top:6px">Ye message card ke saath jayega. <b>{card}</b> ki jagah guest ke apne card ka link aayega — link kholte hi unka PDF download ho jata hai. <b>{contact}</b> ki jagah Family / Friends wale number aayenge. Isme badlav kar sakte ho — save rahega.</p>
+      <p class="hint" style="margin-top:6px">Ye message card ke saath jayega. <b>{card}</b> ki jagah guest ke apne card ka link aayega — link kholte hi unka PDF download ho jata hai. Contact number upar Family / Friends chunne se apne aap badal jata hai. Isme badlav kar sakte ho — save rahega.</p>
     </section>
   </div>
 
@@ -397,6 +397,7 @@ function fillForm(r) {
   KEYS.forEach((k) => { enEl[k].value = r[k] || ""; hiEl[k].value = r[k + "_hi"] || ""; });
   $("phone").value = r.phone || "";
   $("group").value = r.group === "friends" ? "friends" : "family";
+  $("group").dispatchEvent(new Event("change"));
   setLang(r.lang === "hi" ? "hi" : "en");
 }
 function clearForm() {
@@ -505,7 +506,7 @@ const CONTACTS = {
 const OLD_SENDER_WA = "+91-7549831252";
 const groupEl = $("group");
 try { if (localStorage.getItem("wedding-group") === "friends") groupEl.value = "friends"; } catch (e) {}
-groupEl.addEventListener("change", () => { try { localStorage.setItem("wedding-group", groupEl.value); } catch (e) {} });
+const contactFor = (g) => CONTACTS[g] || CONTACTS.family;
 const DEFAULT_MSG = `Dear Friend,
 
 With immense joy and blessings of the Almighty, we warmly invite you and your family to the wedding ceremony of
@@ -526,19 +527,29 @@ Shubham & Family
 // v2: new default message — older saved edits are not carried over.
 const MSG_KEY = "wedding-wa-msg-v2";
 const msgEl = $("msg");
+// The message is kept as a template with {contact}; the box shows the real numbers
+// for the chosen Family / Friends, and swaps them when the choice changes.
+let msgTemplate = DEFAULT_MSG;
 try {
-  // Older saved messages had one fixed number — swap it for the Family/Friends placeholder.
   let saved = localStorage.getItem(MSG_KEY);
-  if (saved && saved.includes(OLD_SENDER_WA)) {
-    saved = saved.replace(`📞 WhatsApp: ${OLD_SENDER_WA}`, "📞 Contact: {contact}").split(OLD_SENDER_WA).join("{contact}");
-    localStorage.setItem(MSG_KEY, saved);
-  }
-  msgEl.value = saved || DEFAULT_MSG;
-} catch (e) { msgEl.value = DEFAULT_MSG; }
-msgEl.addEventListener("input", () => { try { localStorage.setItem(MSG_KEY, msgEl.value); } catch (e) {} });
+  if (saved && saved.includes(OLD_SENDER_WA)) saved = saved.split(OLD_SENDER_WA).join("{contact}");
+  if (saved) msgTemplate = saved;
+} catch (e) {}
+const fillContact = (tpl, g) => tpl.split("{contact}").join(contactFor(g));
+function showMsg() { msgEl.value = fillContact(msgTemplate, groupEl.value); }
+showMsg();
+msgEl.addEventListener("input", () => {
+  msgTemplate = msgEl.value.split(contactFor(groupEl.value)).join("{contact}");
+  try { localStorage.setItem(MSG_KEY, msgTemplate); } catch (e) {}
+});
+groupEl.addEventListener("change", () => {
+  try { localStorage.setItem("wedding-group", groupEl.value); } catch (e) {}
+  showMsg();
+});
 $("msgReset").addEventListener("click", () => {
-  if (msgEl.value !== DEFAULT_MSG && !confirm("Apna likha message hata kar default message lagana hai?")) return;
-  msgEl.value = DEFAULT_MSG;
+  if (msgTemplate !== DEFAULT_MSG && !confirm("Apna likha message hata kar default message lagana hai?")) return;
+  msgTemplate = DEFAULT_MSG;
+  showMsg();
   try { localStorage.removeItem(MSG_KEY); } catch (e) {}
 });
 
@@ -574,12 +585,10 @@ function cardLink(r) {
 }
 // Puts the guest's card link where {card} is, or at the end for older saved messages.
 function messageFor(r) {
-  const msg = msgEl.value.trim() || DEFAULT_MSG;
+  const msg = msgTemplate.trim() || DEFAULT_MSG;
   const link = cardLink(r);
-  const contact = CONTACTS[r.group] || CONTACTS.family;
-  let out = msg.includes("{card}") ? msg.split("{card}").join(link) : `${msg}\n\n📩 Your invitation card (PDF):\n${link}`;
-  out = out.includes("{contact}") ? out.split("{contact}").join(contact) : `${out}\n📞 Contact : ${contact}`;
-  return out;
+  const out = msg.includes("{card}") ? msg.split("{card}").join(link) : `${msg}\n\n📩 Your invitation card (PDF):\n${link}`;
+  return fillContact(out, r.group);
 }
 
 // The WhatsApp tab must be opened right on the click — browsers block window.open
