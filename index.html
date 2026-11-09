@@ -190,6 +190,12 @@
           <option value="friends">🤝 Friends</option>
         </select>
 
+        <label for="waMode">6. Computer par WhatsApp kaise khule? <small>(phone par hamesha WhatsApp app)</small></label>
+        <select id="waMode">
+          <option value="web">🌐 WhatsApp Web — ek hi tab, har baar wahi tab</option>
+          <option value="app">💻 WhatsApp Desktop app — seedha contact khulega</option>
+        </select>
+
         <div class="actions">
           <button type="submit" class="primary" id="dlBtn">⬇ Download PDF</button>
           <button type="button" class="wa" id="waBtn"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.3-.4.8-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.7.3-.2.3-.9.9-.9 2.2s.9 2.5 1 2.7c.1.2 1.8 2.8 4.4 3.9 1.6.7 2.3.8 3.1.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3z"/></svg> WhatsApp par bhejo</button>
@@ -589,15 +595,29 @@ function messageFor(r) {
   return fillContact(out, r.group);
 }
 
-// The WhatsApp tab must be opened right on the click — browsers block window.open
-// once we have waited for the PDF to build. We fill in its address afterwards.
+// How WhatsApp opens on a computer: "web" = one reused WhatsApp Web tab, "app" = WhatsApp Desktop app.
+const waModeEl = $("waMode");
+try { if (localStorage.getItem("wedding-wa-mode") === "app") waModeEl.value = "app"; } catch (e) {}
+waModeEl.addEventListener("change", () => { try { localStorage.setItem("wedding-wa-mode", waModeEl.value); } catch (e) {} });
+const onPhone = () => window.matchMedia("(pointer: coarse)").matches;
+const useDesktopApp = () => !onPhone() && waModeEl.value === "app";
+
+// Every invite goes to the same named tab, so an already-open WhatsApp tab is reused
+// (it just switches to the new contact) instead of opening WhatsApp again and again.
+// It must be opened right on the click — browsers block window.open after an await.
+const WA_TAB = "wedding_whatsapp";
+const newWaTabs = new WeakSet(); // blank tabs we just made (safe to close if something fails)
 function openWaTab() {
-  const tab = window.open("", "_blank");
+  if (useDesktopApp()) return null; // the app opens through whatsapp://, no tab needed
+  const tab = window.open("", WA_TAB); // empty URL: an existing WhatsApp tab is left as it is
   if (tab) {
     try {
-      tab.opener = null;
-      tab.document.title = "WhatsApp…";
-      tab.document.body.innerHTML = '<p style="font:18px system-ui;text-align:center;margin-top:40vh;color:#1fa855">WhatsApp khul raha hai…</p>';
+      // Only a brand-new blank tab is readable here; the existing WhatsApp tab is not.
+      if (tab.location.href === "about:blank") {
+        tab.document.title = "WhatsApp…";
+        tab.document.body.innerHTML = '<p style="font:18px system-ui;text-align:center;margin-top:40vh;color:#1fa855">WhatsApp khul raha hai…</p>';
+        newWaTabs.add(tab);
+      }
     } catch (e) {}
   }
   return tab;
@@ -609,14 +629,17 @@ async function sendWhatsApp(r, tab) {
   // NFC + no stray lone surrogates, so every emoji encodes as clean UTF-8.
   const msg = messageFor(r).normalize("NFC").replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
   // Not wa.me: its redirect re-encodes the text and turns emoji (💍📅📍📩📞) into "�".
-  // Computers go straight to WhatsApp Web; phones use api.whatsapp.com, which opens the app.
-  const onPhone = window.matchMedia("(pointer: coarse)").matches;
+  // Computers go straight to WhatsApp Web (or the Desktop app); phones use api.whatsapp.com, which opens the app.
   const num = waNumber(r.phone);
   const qs = (num ? `phone=${num}&` : "") + `text=${encodeURIComponent(msg)}`;
-  const url = (onPhone ? "https://api.whatsapp.com/send?" : "https://web.whatsapp.com/send?") + qs;
-  if (tab && !tab.closed) tab.location.href = url;
-  else if (!window.open(url, "_blank")) location.href = url; // popup blocked: use this tab
-  return "chat";
+  if (useDesktopApp()) {
+    location.href = "whatsapp://send?" + qs; // the app switches to the contact; this page stays
+    return "app";
+  }
+  const url = (onPhone() ? "https://api.whatsapp.com/send?" : "https://web.whatsapp.com/send?") + qs;
+  if (tab && !tab.closed) { tab.location.href = url; tab.focus(); }
+  else if (!window.open(url, WA_TAB)) location.href = url; // popup blocked: use this tab
+  return "web";
 }
 
 async function waFlow(r, btn, tab = openWaTab()) {
@@ -624,11 +647,13 @@ async function waFlow(r, btn, tab = openWaTab()) {
   hint.className = "hint";
   hint.textContent = "WhatsApp khul raha hai…";
   try {
-    await sendWhatsApp(r, tab);
+    const how = await sendWhatsApp(r, tab);
     upsert(r, { wa: true });
-    hint.textContent = `✓ WhatsApp naye tab me khul gaya — message me "${printed(r).name}" ke card ka link hai, bas Send dabao.`;
+    hint.textContent = how === "app"
+      ? `✓ WhatsApp app me "${printed(r).name}" ki chat khul gayi — message tayyar hai, bas Send dabao.`
+      : `✓ WhatsApp tab me "${printed(r).name}" ki chat khul gayi — message me card ka link hai, bas Send dabao.`;
   } catch (err) {
-    if (tab && !tab.closed) tab.close();
+    if (tab && newWaTabs.has(tab) && !tab.closed) tab.close(); // never close your WhatsApp tab
     hint.className = "hint err";
     hint.textContent = "Error: " + err.message;
   }
