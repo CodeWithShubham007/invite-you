@@ -120,7 +120,7 @@
     width: 100%; margin-top: 8px; padding: 10px 12px; font: inherit; font-size: .95rem; line-height: 1.45;
     border: 1px solid var(--line); border-radius: 8px; background: #fffdf9; color: var(--text); resize: vertical;
   }
-  input[type=tel] {
+  select, input[type=tel] {
     width: 100%; padding: 10px 12px; font: inherit; font-size: 1.05rem;
     border: 1px solid var(--line); border-radius: 8px; background: #fffdf9; color: var(--text);
   }
@@ -184,6 +184,12 @@
         <label for="phone">4. Guest ka WhatsApp number <small>(optional — card par nahi chhapta)</small></label>
         <input type="tel" id="phone" maxlength="20" placeholder="e.g. 98765 43210" inputmode="tel">
 
+        <label for="group">5. Family ya Friends? <small>(message me contact number isi se aayega)</small></label>
+        <select id="group">
+          <option value="family">👨‍👩‍👧 Family — +91-7762002577 & +91-8527300399</option>
+          <option value="friends">🤝 Friends — +91-8527300399</option>
+        </select>
+
         <div class="actions">
           <button type="submit" class="primary" id="dlBtn">⬇ Download PDF</button>
           <button type="button" class="wa" id="waBtn"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.3-.4.8-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.7.3-.2.3-.9.9-.9 2.2s.9 2.5 1 2.7c.1.2 1.8 2.8 4.4 3.9 1.6.7 2.3.8 3.1.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3z"/></svg> WhatsApp par bhejo</button>
@@ -202,7 +208,7 @@
         <button type="button" class="small" id="msgReset">Default message</button>
       </div>
       <textarea id="msg" rows="14"></textarea>
-      <p class="hint" style="margin-top:6px">Ye message card ke saath jayega. <b>{card}</b> ki jagah guest ke apne card ka link aayega — link kholte hi unka PDF download ho jata hai. Isme badlav kar sakte ho — save rahega.</p>
+      <p class="hint" style="margin-top:6px">Ye message card ke saath jayega. <b>{card}</b> ki jagah guest ke apne card ka link aayega — link kholte hi unka PDF download ho jata hai. <b>{contact}</b> ki jagah Family / Friends wale number aayenge. Isme badlav kar sakte ho — save rahega.</p>
     </section>
   </div>
 
@@ -376,7 +382,7 @@ KEYS.forEach((k) => {
 
 // Full record of what's in the form.
 function record() {
-  const r = { lang, phone: $("phone").value.trim() };
+  const r = { lang, phone: $("phone").value.trim(), group: $("group").value };
   KEYS.forEach((k) => { r[k] = enEl[k].value.trim(); r[k + "_hi"] = hiEl[k].value.trim(); });
   return r;
 }
@@ -390,6 +396,7 @@ function values() { return printed(record()); }
 function fillForm(r) {
   KEYS.forEach((k) => { enEl[k].value = r[k] || ""; hiEl[k].value = r[k + "_hi"] || ""; });
   $("phone").value = r.phone || "";
+  $("group").value = r.group === "friends" ? "friends" : "family";
   setLang(r.lang === "hi" ? "hi" : "en");
 }
 function clearForm() {
@@ -490,7 +497,15 @@ async function downloadFor(r) {
 }
 
 // ---------- WhatsApp ----------
-const SENDER_WA = "+91-7549831252";
+// Contact numbers put in the message, by who the guest is.
+const CONTACTS = {
+  family: "+91-7762002577 & +91-8527300399",
+  friends: "+91-8527300399",
+};
+const OLD_SENDER_WA = "+91-7549831252";
+const groupEl = $("group");
+try { if (localStorage.getItem("wedding-group") === "friends") groupEl.value = "friends"; } catch (e) {}
+groupEl.addEventListener("change", () => { try { localStorage.setItem("wedding-group", groupEl.value); } catch (e) {} });
 const DEFAULT_MSG = `Dear Friend,
 
 With immense joy and blessings of the Almighty, we warmly invite you and your family to the wedding ceremony of
@@ -514,10 +529,18 @@ Your presence and blessings will make this day truly special for us. 🙏
 
 With warm regards,
 Shubham & Family
-📞 WhatsApp: ${SENDER_WA}`;
+📞 Contact: {contact}`;
 const MSG_KEY = "wedding-wa-msg-v1";
 const msgEl = $("msg");
-try { msgEl.value = localStorage.getItem(MSG_KEY) || DEFAULT_MSG; } catch (e) { msgEl.value = DEFAULT_MSG; }
+try {
+  // Older saved messages had one fixed number — swap it for the Family/Friends placeholder.
+  let saved = localStorage.getItem(MSG_KEY);
+  if (saved && saved.includes(OLD_SENDER_WA)) {
+    saved = saved.replace(`📞 WhatsApp: ${OLD_SENDER_WA}`, "📞 Contact: {contact}").split(OLD_SENDER_WA).join("{contact}");
+    localStorage.setItem(MSG_KEY, saved);
+  }
+  msgEl.value = saved || DEFAULT_MSG;
+} catch (e) { msgEl.value = DEFAULT_MSG; }
 msgEl.addEventListener("input", () => { try { localStorage.setItem(MSG_KEY, msgEl.value); } catch (e) {} });
 $("msgReset").addEventListener("click", () => {
   if (msgEl.value !== DEFAULT_MSG && !confirm("Apna likha message hata kar default message lagana hai?")) return;
@@ -559,7 +582,10 @@ function cardLink(r) {
 function messageFor(r) {
   const msg = msgEl.value.trim() || DEFAULT_MSG;
   const link = cardLink(r);
-  return msg.includes("{card}") ? msg.split("{card}").join(link) : `${msg}\n\n📩 Your invitation card (PDF):\n${link}`;
+  const contact = CONTACTS[r.group] || CONTACTS.family;
+  let out = msg.includes("{card}") ? msg.split("{card}").join(link) : `${msg}\n\n📩 Your invitation card (PDF):\n${link}`;
+  out = out.includes("{contact}") ? out.split("{contact}").join(contact) : `${out}\n📞 Contact: ${contact}`;
+  return out;
 }
 
 // The WhatsApp tab must be opened right on the click — browsers block window.open
@@ -646,6 +672,7 @@ function upsert(v, extra = {}) {
     existing.at = Date.now();
     existing.downloads = (existing.downloads || 1) + 1;
     if (v.phone) existing.phone = v.phone;
+    if (v.group) existing.group = v.group;
     Object.assign(existing, extra);
   } else {
     list.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ...v, ...extra, at: Date.now(), downloads: 1 });
@@ -675,7 +702,7 @@ function renderList() {
     const nameHi = isHi && r.name_hi && r.name_hi !== r.name ? `<span class="sub">${esc(r.name_hi)}</span>` : "";
     return `<tr>
       <td>${list.length - list.indexOf(r)}</td>
-      <td class="name">${esc(r.name || r.name_hi)}<span class="tag">${isHi ? "हिंदी" : "EN"}</span>${r.wa ? '<span class="tag" style="color:#1fa855;border-color:#1fa855">WhatsApp ✓</span>' : ""}${nameHi}${r.phone ? `<span class="sub">📞 ${esc(r.phone)}</span>` : ""}</td>
+      <td class="name">${esc(r.name || r.name_hi)}<span class="tag">${isHi ? "हिंदी" : "EN"}</span><span class="tag">${r.group === "friends" ? "Friends" : "Family"}</span>${r.wa ? '<span class="tag" style="color:#1fa855;border-color:#1fa855">WhatsApp ✓</span>' : ""}${nameHi}${r.phone ? `<span class="sub">📞 ${esc(r.phone)}</span>` : ""}</td>
       <td>${addr || "<span style='color:var(--muted)'>—</span>"}${addrHi && addrHi !== addr ? `<span class="sub">${addrHi}</span>` : ""}</td>
       <td class="when">${when}</td>
       <td class="btns">
@@ -717,12 +744,12 @@ $("search").addEventListener("input", renderList);
 $("csvBtn").addEventListener("click", () => {
   if (!list.length) return;
   const q = (s) => `"${String(s || "").replace(/"/g, '""')}"`;
-  const lines = [["S.No", "Naam", "Address", "Address 2", "Card Language", "नाम (हिंदी)", "पता (हिंदी)", "पता 2 (हिंदी)", "WhatsApp No.", "WhatsApp Sent", "Date"].map(q).join(",")];
+  const lines = [["S.No", "Naam", "Address", "Address 2", "Card Language", "नाम (हिंदी)", "पता (हिंदी)", "पता 2 (हिंदी)", "WhatsApp No.", "Family / Friends", "WhatsApp Sent", "Date"].map(q).join(",")];
   list.slice().reverse().forEach((r, i) => {
     const isHi = r.lang === "hi";
     lines.push([i + 1, r.name, r.addr1, r.addr2, isHi ? "Hindi" : "English",
       isHi ? r.name_hi : "", isHi ? r.addr1_hi : "", isHi ? r.addr2_hi : "",
-      r.phone || "", r.wa ? "Yes" : "",
+      r.phone || "", r.group === "friends" ? "Friends" : "Family", r.wa ? "Yes" : "",
       new Date(r.at).toLocaleString("en-IN")].map(q).join(","));
   });
   const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
