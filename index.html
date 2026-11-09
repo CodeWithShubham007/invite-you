@@ -513,24 +513,18 @@ With immense joy and blessings of the Almighty, we warmly invite you and your fa
 💍 *Surabhi* & *Vindhya* 💍
 
 📅 *Friday, 20 November 2026*
-🍽️ Preetibhoj (Reception): 7:00 PM onwards
+🍽️ Preetibhoj : 7:00 PM onwards
 📍 Shagun Vatika, Mahisauri, Jamui (Bihar)
 
-Wedding functions:
-• Tilak – Tue, 17 Nov
-• Haldi – Wed, 18 Nov
-• Mehndi & Sangeet – Thu, 19 Nov
-• Shubh Vivah – Fri, 20 Nov
 
-Your presence and blessings will make this day truly special for us. 🙏
-
-📩 Your invitation card (PDF):
-{card}
+Your presence and blessings will make this day truly special for us. Please find the invitation card attached. 🙏
+📩 {card}
 
 With warm regards,
 Shubham & Family
-📞 Contact: {contact}`;
-const MSG_KEY = "wedding-wa-msg-v1";
+📞 Contact : {contact}`;
+// v2: new default message — older saved edits are not carried over.
+const MSG_KEY = "wedding-wa-msg-v2";
 const msgEl = $("msg");
 try {
   // Older saved messages had one fixed number — swap it for the Family/Friends placeholder.
@@ -584,7 +578,7 @@ function messageFor(r) {
   const link = cardLink(r);
   const contact = CONTACTS[r.group] || CONTACTS.family;
   let out = msg.includes("{card}") ? msg.split("{card}").join(link) : `${msg}\n\n📩 Your invitation card (PDF):\n${link}`;
-  out = out.includes("{contact}") ? out.split("{contact}").join(contact) : `${out}\n📞 Contact: ${contact}`;
+  out = out.includes("{contact}") ? out.split("{contact}").join(contact) : `${out}\n📞 Contact : ${contact}`;
   return out;
 }
 
